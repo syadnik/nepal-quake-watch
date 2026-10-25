@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nepal Seismic Monitor | Live USGS Earthquakes</title>
+  <script type="module" src="https://js.arcgis.com/5.1/"></script>
+  <style>
+    body { margin: 0; background: #161a1d; color: #e8e8e8; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    header.intro { max-width: 1100px; margin: 0 auto; padding: 16px 20px 12px; }
+    header.intro h1 { margin: 0 0 8px; font-size: 1.6rem; }
+    header.intro p { margin: 0; line-height: 1.55; font-size: 0.95rem; }
+    header.intro a { color: #6fd3ff; }
+    arcgis-map { display: block; position: relative; height: 75vh; }
+    footer.caveat {
+      max-width: 1100px; margin: 12px auto 20px; padding: 10px 14px;
+      border-left: 4px solid #f5a623; background: rgba(245, 166, 35, 0.15);
+      border-radius: 4px; font-size: 0.9rem; line-height: 1.5;
+    }
+    #infoDiv { padding: 6px; width: 370px; height: 96%; position: absolute; top: 5px; right: 10px; overflow: auto; }
+    #resultsDiv { overflow: auto; max-height: 28vh; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+    .stat { background: rgba(255,255,255,0.07); border-radius: 6px; padding: 8px; min-width: 0; }
+    .stat .label { font-size: 11px; opacity: .7; }
+    .stat .value { font-size: 18px; font-weight: 600; }
+    .stat .sub { font-size: 11px; opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .note { font-size: 11px; opacity: .7; padding: 4px; }
+    .analysis { background: rgba(0,200,255,0.1); border-radius: 6px; padding: 8px; margin: 8px 0; font-size: 13px; }
+    .event-card { border-left: 3px solid #d62828; border-radius: 6px; padding: 8px; margin: 8px 0; font-size: 13px; }
+    .event-card .row { margin: 4px 0; }
+    @media (max-width: 700px) {
+      #infoDiv { width: auto; height: 48%; top: auto; bottom: 5px; left: 5px; right: 5px; }
+    }
+  </style>
+</head>
+<body class="calcite-mode-dark">
+
+  <header class="intro">
+    <h1>Nepal Seismic Monitor</h1>
+    <p>
+      This map tracks live earthquakes in and around Nepal using the
+      <a href="https://earthquake.usgs.gov/fdsnws/event/1/" target="_blank" rel="noopener">USGS Earthquake Catalog API</a>,
+      with markers sized and colored by magnitude and filters for time window and magnitude.
+      You can click anywhere to count nearby events, switch to satellite imagery, and zoom to the two seismic signals
+      recorded for the 26 August 2026 Langtang debris avalanche and flash flood, which is why I chose Nepal as my study area
+      (<a href="https://www.usgs.gov/programs/landslide-hazards/science/2026-nepal-debris-avalanche-and-flash-flood" target="_blank" rel="noopener">USGS event page</a>).
+      I started from Esri's "GeoJSONLayer with dynamic URL" sample and changed the study area, basemap, symbols, and filters,
+      then added a dashboard, a proximity tool, a Nepal boundary layer, the event highlights, and a basemap toggle.
+    </p>
+  </header>
+
+  <arcgis-map basemap="dark-gray-vector" center="84.1, 28.4" zoom="6">
+    <arcgis-popup slot="popup"></arcgis-popup>
+    <arcgis-zoom slot="top-left"></arcgis-zoom>
+    <arcgis-expand slot="top-left" expand-tooltip="Legend">
+      <arcgis-legend></arcgis-legend>
+    </arcgis-expand>
+    <!-- Component I added (Step 4): Basemap Toggle -->
+    <arcgis-basemap-toggle slot="bottom-left" next-basemap="satellite"></arcgis-basemap-toggle>
+
+    <calcite-panel id="infoDiv" class="calcite-mode-dark">
+      <h3 class="heading" slot="header-content">Nepal Seismic Monitor</h3>
+      <div style="padding: 5px">
+        <div id="lastUpdated" class="note">Loading live data…</div>
+
+        <calcite-label><b>Time window</b></calcite-label>
+        <calcite-radio-button-group name="time" layout="horizontal" id="selectTime" scale="s">
+          <calcite-label layout="inline"><calcite-radio-button value="7"></calcite-radio-button>7 days</calcite-label>
+          <calcite-label layout="inline"><calcite-radio-button value="30"></calcite-radio-button>30 days</calcite-label>
+          <calcite-label layout="inline"><calcite-radio-button value="365" checked></calcite-radio-button>1 year</calcite-label>
+        </calcite-radio-button-group>
+
+        <calcite-label><b>Minimum magnitude</b></calcite-label>
+        <calcite-radio-button-group name="mag" layout="horizontal" id="selectMag" scale="s">
+          <calcite-label layout="inline"><calcite-radio-button value="4.0" checked></calcite-radio-button>4.0+</calcite-label>
+          <calcite-label layout="inline"><calcite-radio-button value="4.5"></calcite-radio-button>4.5+</calcite-label>
+          <calcite-label layout="inline"><calcite-radio-button value="5.0"></calcite-radio-button>5.0+</calcite-label>
+        </calcite-radio-button-group>
+
+        <div class="stats">
+          <div class="stat"><div class="label">EVENTS</div><div class="value" id="statCount">–</div><div class="sub">in window</div></div>
+          <div class="stat"><div class="label">STRONGEST</div><div class="value" id="statMax">–</div><div class="sub" id="statMaxPlace"></div></div>
+          <div class="stat"><div class="label">LATEST</div><div class="value" id="statLatest">–</div><div class="sub" id="statLatestPlace"></div></div>
+        </div>
+
+        <!-- Event spotlight: Aug 26, 2026 debris avalanche and flash flood -->
+        <div class="event-card">
+          <b>26 Aug 2026 Langtang debris avalanche &amp; flash flood</b>
+          <div id="eventInfo" class="row">Loading USGS event records…</div>
+          <div class="row">
+            <calcite-button id="zoomEvent" scale="s" appearance="outline" disabled>Zoom to event</calcite-button>
+          </div>
+          <div class="note">
+            ◆ Red diamonds: seismic signals USGS linked to the event. Dashed red ring: 100 km straight-line
+            reference (the reported flow path followed river channels). Information from the
+            <a href="https://www.usgs.gov/programs/landslide-hazards/science/2026-nepal-debris-avalanche-and-flash-flood" target="_blank" rel="noopener">USGS Landslide Hazards Program</a>.
+          </div>
+        </div>
+
+        <calcite-label><b>Proximity analysis:</b> click the map, then see events within</calcite-label>
+        <calcite-radio-button-group name="radius" layout="horizontal" id="selectRadius" scale="s">
+          <calcite-label layout="inline"><calcite-radio-button value="50"></calcite-radio-button>50 km</calcite-label>
+          <calcite-label layout="inline"><calcite-radio-button value="100" checked></calcite-radio-button>100 km</calcite-label>
+          <calcite-label layout="inline"><calcite-radio-button value="200"></calcite-radio-button>200 km</calcite-label>
+        </calcite-radio-button-group>
+        <div class="analysis" id="analysisResult">Click anywhere on the map to screen nearby seismic activity.</div>
+
+        <p class="heading" id="resultsHeading"></p>
+        <div id="resultsDiv"><calcite-list id="results"></calcite-list></div>
+
+        <div class="note">
+          Data: USGS Earthquake Catalog (live). Boundary: Esri World Countries.
+        </div>
+      </div>
+    </calcite-panel>
+  </arcgis-map>
+
+  <footer class="caveat">
+    <strong>Please note:</strong> The event information is preliminary, and this is a student project, not an official warning tool.
+  </footer>
+
+  <script type="module">
+    const [GeoJSONLayer, FeatureLayer, GraphicsLayer, Graphic, Circle] = await $arcgis.import([
+      "@arcgis/core/layers/GeoJSONLayer.js",
+      "@arcgis/core/layers/FeatureLayer.js",
+      "@arcgis/core/layers/GraphicsLayer.js",
+      "@arcgis/core/Graphic.js",
+      "@arcgis/core/geometry/Circle.js"
+    ]);
+
+    const viewElement = document.querySelector("arcgis-map");
+    const REFRESH_MINUTES = 5;
+    const state = { days: 365, minMag: 4.0, radiusKm: 100 };
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    // Rolling start time: recalculated on every refresh so the window always ends "now"
+    const startTime = (days) => new Date(Date.now() - days * 86400000).toISOString().split(".")[0];
+
+    // ---------- Layer 1: Nepal boundary (FeatureLayer, Option 1) ----------
+    const nepalOutline = new FeatureLayer({
+      url: "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/World_Countries_(Generalized)/FeatureServer",
+      definitionExpression: "ISO='NP'",
+      title: "Nepal boundary",
+      legendEnabled: false,
+      renderer: {
+        type: "simple",
+        symbol: { type: "simple-fill", color: [0, 0, 0, 0], outline: { color: [0, 200, 255, 0.9], width: 1.5 } }
+      }
+    });
+
+    // ---------- Layer 2: live USGS earthquakes (GeoJSONLayer, Option 2) ----------
+    const quakeLayer = new GeoJSONLayer({
+      url: "https://earthquake.usgs.gov/fdsnws/event/1/query",
+      title: "Earthquakes (USGS, live)",
+      copyright: "USGS Earthquake Catalog",
+      customParameters: {
+        format: "geojson",
+        starttime: startTime(state.days),   // no endtime, so USGS defaults to "now"
+        minlatitude: 26.3,
+        maxlatitude: 30.5,
+        minlongitude: 80.0,
+        maxlongitude: 88.3,
+        orderby: "magnitude",
+        minmagnitude: state.minMag
+      },
+      renderer: {
+        type: "simple",
+        symbol: { type: "simple-marker", color: "#f77f00", outline: { color: "white", width: 0.75 } },
+        visualVariables: [
+          {
+            type: "size", field: "mag", legendOptions: { title: "Magnitude (size)" },
+            stops: [{ value: 4, size: 6 }, { value: 6, size: 22 }, { value: 8, size: 50 }]
+          },
+          {
+            type: "color", field: "mag", legendOptions: { title: "Magnitude (color)" },
+            stops: [
+              { value: 4, color: "#ffd166" },
+              { value: 5, color: "#f77f00" },
+              { value: 6, color: "#d62828" },
+              { value: 7, color: "#7b0000" }
+            ]
+          }
+        ]
+      },
+      popupTemplate: {
+        title: "M {mag} – {place}",
+        content: [
+          {
+            type: "fields",
+            fieldInfos: [
+              { fieldName: "time", label: "Time", format: { dateFormat: "short-date-short-time" } },
+              { fieldName: "mag", label: "Magnitude" },
+              { fieldName: "status", label: "Review status" },
+              { fieldName: "felt", label: "'Did you feel it?' reports" },
+              { fieldName: "sig", label: "USGS significance score" }
+            ]
+          },
+          { type: "text", text: "<a href='{url}' target='_blank' rel='noopener'>USGS event page</a>" }
+        ]
+      }
+    });
+
+    // Graphics layers: event spotlight + proximity-analysis circle
+    const spotlightLayer = new GraphicsLayer({ title: "Aug 2026 event signals", listMode: "hide" });
+    const analysisLayer = new GraphicsLayer({ title: "Proximity analysis", listMode: "hide" });
+
+    await viewElement.viewOnReady();
+    viewElement.map.addMany([nepalOutline, quakeLayer, spotlightLayer, analysisLayer]);
+    if (window.innerWidth > 700) viewElement.padding.right = 370;
+
+    await quakeLayer.load();
+    quakeLayer.on("refresh", updateDashboard);
+    updateDashboard();
+    loadEventSpotlight();
+
+    // ---------- Event spotlight (Option 3: fetch() + graphics) ----------
+    // Event IDs come from the USGS event page for the 2026 Nepal Debris Avalanche and Flash Flood.
+    const EVENT_IDS = ["us7000tbwb", "us7000tc90"];
+    const RING_KM = 100;   // reported runout was ~100 km along river channels
+
+    async function loadEventSpotlight() {
+      const info = document.getElementById("eventInfo");
+      try {
+        const features = await Promise.all(EVENT_IDS.map(async (id) => {
+          const res = await fetch(`https://earthquake.usgs.gov/fdsnws/event/1/query?eventid=${id}&format=geojson`);
+          if (!res.ok) throw new Error(`USGS API returned ${res.status} for ${id}`);
+          const data = await res.json();
+          // A single-event query returns one Feature; a normal query returns a FeatureCollection
+          return data.type === "FeatureCollection" ? data.features[0] : data;
+        }));
+
+        const roles = ["Primary signal", "Secondary signal"];
+        const rows = [];
+        features.forEach((f, i) => {
+          const [lon, lat] = f.geometry.coordinates;
+          const p = f.properties;
+          const when = new Date(p.time).toLocaleString();
+          spotlightLayer.add(new Graphic({
+            geometry: { type: "point", longitude: lon, latitude: lat },
+            symbol: { type: "simple-marker", style: "diamond", size: 16, color: [214, 40, 40, 0.95], outline: { color: "white", width: 2 } },
+            attributes: { role: roles[i], title: p.title, mag: p.mag, magType: p.magType, catalogType: p.type, when, url: p.url },
+            popupTemplate: {
+              title: "{role}: {title}",
+              content: "Catalog magnitude <b>{mag}</b> ({magType}) · catalog event type: <b>{catalogType}</b><br/>" +
+                       "Time: {when}<br/><br/>" +
+                       "<a href='{url}' target='_blank' rel='noopener'>USGS event page</a>"
+            }
+          }));
+          rows.push(`<div class="row"><b>${roles[i]}:</b> M ${esc(p.mag)}, ${esc(when)}</div>`);
+        });
+
+        // Time between the two signals, calculated from the data
+        const gapMin = Math.round(Math.abs(features[1].properties.time - features[0].properties.time) / 60000);
+        rows.push(`<div class="row"><b>Time between signals:</b> ${Math.floor(gapMin / 60)} h ${gapMin % 60} min</div>`);
+        info.innerHTML = rows.join("");
+
+        // Straight-line reference ring around the primary signal
+        const [lon0, lat0] = features[0].geometry.coordinates;
+        const ring = new Circle({ center: [lon0, lat0], radius: RING_KM, radiusUnit: "kilometers", geodesic: true });
+        spotlightLayer.add(new Graphic({
+          geometry: ring,
+          symbol: { type: "simple-fill", color: [214, 40, 40, 0.04], outline: { color: [214, 40, 40, 1], width: 1.5, style: "dash" } },
+          popupTemplate: {
+            title: `${RING_KM} km reference ring`,
+            content: "The reported runout was about 100 km along river channels, so this straight-line ring is only an approximate outer reference, not the flow path."
+          }
+        }));
+
+        const zoomBtn = document.getElementById("zoomEvent");
+        zoomBtn.disabled = false;
+        zoomBtn.addEventListener("click", () => viewElement.goTo(ring.extent.expand(1.3)));
+      } catch (err) {
+        console.error(err);
+        info.textContent = "Could not load the USGS event records right now. The rest of the map still works.";
+      }
+    }
+
+    // ---------- Controls ----------
+    const selectTime = document.getElementById("selectTime");
+    const selectMag = document.getElementById("selectMag");
+    const selectRadius = document.getElementById("selectRadius");
+
+    selectTime.addEventListener("calciteRadioButtonGroupChange", () => {
+      state.days = Number(selectTime.selectedItem.value);
+      applyFilters();
+    });
+    selectMag.addEventListener("calciteRadioButtonGroupChange", () => {
+      state.minMag = selectMag.selectedItem.value;
+      applyFilters();
+    });
+    selectRadius.addEventListener("calciteRadioButtonGroupChange", () => {
+      state.radiusKm = Number(selectRadius.selectedItem.value);
+    });
+
+    function applyFilters() {
+      quakeLayer.customParameters.starttime = startTime(state.days);
+      quakeLayer.customParameters.minmagnitude = state.minMag;
+      quakeLayer.refresh();   // re-fetches GeoJSON from the USGS API
+    }
+
+    // Live monitoring: re-fetch on a timer so the rolling window stays current
+    setInterval(applyFilters, REFRESH_MINUTES * 60 * 1000);
+
+    // ---------- Dashboard ----------
+    async function updateDashboard() {
+      const query = quakeLayer.createQuery().set({
+        outFields: ["mag", "title", "place", "time", quakeLayer.objectIdField],
+        returnGeometry: true
+      });
+      const { features } = await quakeLayer.queryFeatures(query);
+
+      const byMag = [...features].sort((a, b) => b.attributes.mag - a.attributes.mag);
+      const byTime = [...features].sort((a, b) => b.attributes.time - a.attributes.time);
+      document.getElementById("statCount").textContent = features.length;
+      document.getElementById("statMax").textContent = byMag.length ? `M ${byMag[0].attributes.mag}` : "–";
+      document.getElementById("statMaxPlace").textContent = byMag.length ? byMag[0].attributes.place : "";
+      document.getElementById("statLatest").textContent = byTime.length ? timeAgo(byTime[0].attributes.time) : "–";
+      document.getElementById("statLatestPlace").textContent = byTime.length ? `M ${byTime[0].attributes.mag}` : "";
+      document.getElementById("lastUpdated").textContent =
+        `● LIVE · refreshed ${new Date().toLocaleTimeString()} · auto-updates every ${REFRESH_MINUTES} min`;
+
+      const list = document.getElementById("results");
+      list.textContent = "";
+      for (const feature of byMag.slice(0, 100)) {
+        const { mag, title, time } = feature.attributes;
+        const item = document.createElement("calcite-list-item");
+        item.setAttribute("label", title);
+        item.setAttribute("description", `Magnitude ${mag} · ${new Date(time).toLocaleString()}`);
+        item.addEventListener("click", () =>
+          viewElement.openPopup({ features: [feature], location: feature.geometry }));
+        list.appendChild(item);
+      }
+      document.getElementById("resultsHeading").innerHTML =
+        `<b>${features.length}</b> events, M${quakeLayer.customParameters.minmagnitude}+ (strongest first${features.length > 100 ? ", top 100 shown" : ""})`;
+    }
+
+    function timeAgo(ms) {
+      const minutes = Math.round((Date.now() - ms) / 60000);
+      if (minutes < 60) return `${minutes} min ago`;
+      const hours = Math.round(minutes / 60);
+      return hours < 48 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
+    }
+
+    // ---------- Proximity analysis (click-to-screen) ----------
+    viewElement.addEventListener("arcgisViewClick", async (event) => {
+      const point = event.detail.mapPoint;
+      const circle = new Circle({
+        center: point, radius: state.radiusKm, radiusUnit: "kilometers", geodesic: true
+      });
+
+      analysisLayer.removeAll();
+      analysisLayer.add(new Graphic({
+        geometry: circle,
+        symbol: { type: "simple-fill", color: [0, 200, 255, 0.1], outline: { color: [0, 200, 255, 1], width: 1.5, style: "dash" } }
+      }));
+
+      const q = quakeLayer.createQuery();
+      q.geometry = circle;
+      q.spatialRelationship = "intersects";
+      q.outFields = ["mag", "place", "time"];
+      q.returnGeometry = false;
+      const { features } = await quakeLayer.queryFeatures(q);
+
+      const out = document.getElementById("analysisResult");
+      if (!features.length) {
+        out.textContent = `No M${state.minMag}+ events within ${state.radiusKm} km in the selected window.`;
+        return;
+      }
+      const strongest = features.reduce((a, b) => (b.attributes.mag > a.attributes.mag ? b : a));
+      out.textContent =
+        `${features.length} event${features.length > 1 ? "s" : ""} within ${state.radiusKm} km. ` +
+        `Strongest: M ${strongest.attributes.mag}, ${strongest.attributes.place}.`;
+    });
+  </script>
+</body>
+</html>
