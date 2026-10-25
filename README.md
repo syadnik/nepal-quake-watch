@@ -1,6 +1,6 @@
 # nepal-quake-watch
 SSCI 591 Project 3
-**Live map:** https://YOUR-USERNAME.github.io/nepal-quake-watch/
+**Live map:** https://syadnik.github.io/nepal-quake-watch/
 
 ## a. What this map shows
 This map shows recent earthquakes in and around Nepal, pulled live from the USGS Earthquake Catalog. I chose Nepal because of the debris avalanche and flash flood that began on 26 August 2026 in Langtang National Park and travelled about 100 km downstream. The map highlights the two seismic signals that USGS linked to that event and draws a 100 km reference ring around the first one. Visitors can filter earthquakes by time window and magnitude, and click the map to count events within 50, 100, or 200 km.
